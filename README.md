@@ -160,7 +160,12 @@ sc query OnDemandGatekeeper-gazi-portfolio
 ### Alternative: Scheduled Task (no admin required)
 
 If `sc.exe`/`node-windows` installation fails (e.g. UAC not available), use a PowerShell
-Scheduled Task instead. It provides the same benefits (auto-start at logon, hidden, auto-restart):
+Scheduled Task instead. It provides the same benefits (auto-start at logon, hidden, auto-restart).
+
+**Auto-restart on crash:** The scheduled task is configured with `RestartCount=999` and
+`RestartInterval=5min`. If the gatekeeper process stops or crashes unexpectedly, the task
+scheduler automatically restarts it (up to 999 times, 5 minutes apart). This provides
+robust auto-recovery without a separate watchdog process.
 
 ```powershell
 $gatekeeperDir = "C:\Users\ciphe\Documents\GitHub\on-demand-gatekeeper"
