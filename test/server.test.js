@@ -41,12 +41,19 @@ test('loadConfig honours overrides', () => {
     DEPLOY_BUILD: 'true',
     ADMIN_TOKEN: 'secret',
     IDLE_TIMEOUT_MS: '1234',
+    TARGET_COMPOSE_OVERRIDE_FILE: '/tmp/override.yml',
   });
   assert.equal(c.publicPort, 9000);
   assert.equal(c.internalPort, 9001);
   assert.equal(c.deployBuild, true);
   assert.equal(c.adminToken, 'secret');
   assert.equal(c.idleTimeoutMs, 1234);
+  assert.equal(c.composeOverrideFile, '/tmp/override.yml');
+});
+
+test('loadConfig defaults composeOverrideFile to empty', () => {
+  const c = loadConfig({});
+  assert.equal(c.composeOverrideFile, '');
 });
 
 test('deploy transitions idle -> warming -> ready', async () => {

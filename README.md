@@ -95,6 +95,56 @@ curl -X POST "http://localhost:8023/_ondemand/teardown?token=local-dev-token"
 curl -X POST "http://localhost:8023/_ondemand/deploy?token=local-dev-token"
 ```
 
+## Windows service (local Windows only)
+
+The gatekeeper can be installed as a Windows service so it starts automatically at boot and
+runs in the background without a visible terminal window.
+
+### Prerequisites
+- Run as Administrator.
+- Install dependencies: `npm install` (installs `node-windows`).
+
+### Install
+```powershell
+cd on-demand-gatekeeper
+$env:SERVICE_NAME = "OnDemandGatekeeper-gazi-portfolio"
+$env:GATEKEEPER_ENV_FILE = "C:\path\to\.env"
+npm run service:install
+```
+
+### Uninstall
+```powershell
+$env:SERVICE_NAME = "OnDemandGatekeeper-gazi-portfolio"
+npm run service:uninstall
+```
+
+### Multiple instances
+Each project gets its own service with a unique name, port, and env file:
+```powershell
+# Instance 1: gazi-portfolio (port 8023)
+$env:SERVICE_NAME = "OnDemandGatekeeper-gazi-portfolio"
+$env:GATEKEEPER_ENV_FILE = "C:\path\to\gazi.env"
+npm run service:install
+
+# Instance 2: ai-invoice-po-matching (port 5174)
+$env:SERVICE_NAME = "OnDemandGatekeeper-ai-invoice"
+$env:GATEKEEPER_ENV_FILE = "C:\path\to\ai-invoice.env"
+npm run service:install
+```
+
+### Service management
+```powershell
+# Start/stop/restart via sc.exe or Services.msc
+sc start OnDemandGatekeeper-gazi-portfolio
+sc stop OnDemandGatekeeper-gazi-portfolio
+sc query OnDemandGatekeeper-gazi-portfolio
+```
+
+### Notes
+- The service runs in host mode (node process) — container mode is not viable on Windows.
+- The service reads env vars from the `GATEKEEPER_ENV_FILE` .env file.
+- Logs are written to the Windows Event Log (via node-windows).
+
 ## Security notes
 
 - Container mode mounts `/var/run/docker.sock`, which grants container root-equivalent host

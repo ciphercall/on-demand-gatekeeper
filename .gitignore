@@ -1,8 +1,15 @@
-# On-demand gatekeeper local config (never commit real values)
+﻿# On-demand gatekeeper local config (never commit real values)
 .env
+.env.*
 .env.local
 
 # OS / editor
 .DS_Store
 Thumbs.db
 *.log
+
+# Windows service (node-windows) generated files
+daemon/
+
+# Node modules (installed via npm install)
+node_modules/

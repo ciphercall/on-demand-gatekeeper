@@ -36,6 +36,7 @@ function loadConfig(env) {
     targetName: e.TARGET_NAME || 'target-app',
     composeFile: e.TARGET_COMPOSE_FILE || '/target/docker-compose.yml',
     envFile: e.TARGET_ENV_FILE || '/target/.env',
+    composeOverrideFile: e.TARGET_COMPOSE_OVERRIDE_FILE || '',
     internalPort,
     healthUrl,
     idleTimeoutMs,
@@ -165,7 +166,24 @@ function createGatekeeper(config, deps) {
   function composeEnv() {
     return Object.assign({}, process.env, {
       WEB_PORT: String(config.internalPort),
+      FRONTEND_PORT: String(config.internalPort),
     });
+  }
+
+  // Build the base compose args, including an optional override file.
+  function composeArgs(subcommand) {
+    const args = ['compose', '-f', config.composeFile];
+    if (config.composeOverrideFile) {
+      args.push('-f', config.composeOverrideFile);
+    }
+    args.push('--env-file', config.envFile);
+    if (subcommand === 'up') {
+      args.push('up', '-d');
+      if (config.deployBuild) args.push('--build');
+    } else if (subcommand === 'down') {
+      args.push('down');
+    }
+    return args;
   }
 
   async function deploy() {
@@ -176,16 +194,7 @@ function createGatekeeper(config, deps) {
       deployStartedAt = now();
       readyAt = null;
       try {
-        const args = [
-          'compose',
-          '-f',
-          config.composeFile,
-          '--env-file',
-          config.envFile,
-          'up',
-          '-d',
-        ];
-        if (config.deployBuild) args.push('--build');
+        const args = composeArgs('up');
         await runCompose(args, composeEnv());
         setState('warming', 'Waiting for health check...');
         const deadline = now() + config.deployTimeoutMs;
@@ -215,17 +224,7 @@ function createGatekeeper(config, deps) {
     teardownPromise = (async () => {
       setState('stopping', 'Stopping containers...');
       try {
-        await runCompose(
-          [
-            'compose',
-            '-f',
-            config.composeFile,
-            '--env-file',
-            config.envFile,
-            'down',
-          ],
-          composeEnv()
-        );
+        await runCompose(composeArgs('down'), composeEnv());
       } catch (err) {
         // best-effort; still return to idle
         setState('error', `Teardown failed: ${err.message}`);

@@ -10,7 +10,12 @@
   "scripts": {
     "start": "node src/server.js",
     "check": "node --check src/server.js",
-    "test": "node --test test/server.test.js"
+    "test": "node --test test/server.test.js",
+    "service:install": "node service-install.js",
+    "service:uninstall": "node service-uninstall.js"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "devDependencies": {
+    "node-windows": "^1.0.0-beta.8"
+  }
 }
