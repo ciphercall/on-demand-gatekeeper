@@ -1,0 +1,8 @@
+# On-demand gatekeeper local config (never commit real values)
+.env
+.env.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log

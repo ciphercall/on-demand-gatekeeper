@@ -1,0 +1,43 @@
+# ============================================================================
+#  On-Demand Gatekeeper — example compose file (container mode)
+#
+#  The gatekeeper runs as a container but drives the HOST docker daemon via the
+#  mounted socket. It reads the target's compose file + .env from a bind mount.
+#
+#  IMPORTANT (Linux / VPS): use `network_mode: host` (see the deployed VPS
+#  compose) so the gatekeeper can reach the target's internal port via 127.0.0.1.
+#  With bridge networking the container's localhost is isolated and health checks
+#  / proxying to the host's internal port will fail.
+#
+#  IMPORTANT: in container mode the target directory must be mounted at the SAME
+#  absolute path inside this container as on the host, otherwise the compose file's
+#  relative build contexts and volume paths will not resolve. Adjust the mount
+#  below to match your target's host path.
+#
+#  On Windows (Docker Desktop) prefer host mode (run `node src/server.js` directly)
+#  because bind-mount path translation makes container mode unreliable.
+# ============================================================================
+name: on-demand-gatekeeper
+
+services:
+  gatekeeper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: on-demand-gatekeeper:latest
+    restart: unless-stopped
+    # Linux / VPS: use host networking so the gatekeeper can reach the target's
+    # internal port via 127.0.0.1. Remove the `ports:` mapping when using this.
+    network_mode: host
+    env_file:
+      - .env
+    volumes:
+      # Host docker daemon (grants container root-equivalent host access).
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Target project at the SAME absolute path as on the host.
+      - /opt/github/gazi-portfolio:/opt/github/gazi-portfolio:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:${PUBLIC_PORT:-8023}/_ondemand/status || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6

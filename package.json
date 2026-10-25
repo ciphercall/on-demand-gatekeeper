@@ -1,0 +1,16 @@
+{
+  "name": "on-demand-gatekeeper",
+  "version": "0.1.0",
+  "description": "Minimal always-on listener that on-demand deploys a target webapp's existing Docker stack on first visitor request, reverse-proxies once healthy, and tears it down after an idle timeout. Config-driven; never modifies the target project.",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "check": "node --check src/server.js",
+    "test": "node --test test/server.test.js"
+  },
+  "dependencies": {}
+}
