@@ -24,7 +24,7 @@ if (fs.existsSync(envFile)) {
   }
 }
 
-const { loadConfig, createGatekeeper } = require('./src/server');
+const { loadConfig, createGatekeeper } = require(path.join(__dirname, 'src', 'server'));
 const config = loadConfig(process.env);
 const gk = createGatekeeper(config);
 gk.start();

@@ -104,15 +104,27 @@ runs in the background without a visible terminal window.
 - Run as Administrator.
 - Install dependencies: `npm install` (installs `node-windows`).
 
-### Install
+### Install (run as Administrator)
+Option 1 — Batch file (recommended):
+```cmd
+REM Right-click -> Run as administrator
+install-service.bat OnDemandGatekeeper-gazi-portfolio C:\path\to\.env
+```
+
+Option 2 — npm (requires admin PowerShell):
 ```powershell
-cd on-demand-gatekeeper
 $env:SERVICE_NAME = "OnDemandGatekeeper-gazi-portfolio"
 $env:GATEKEEPER_ENV_FILE = "C:\path\to\.env"
 npm run service:install
 ```
 
-### Uninstall
+### Uninstall (run as Administrator)
+Option 1 — Batch file:
+```cmd
+uninstall-service.bat OnDemandGatekeeper-gazi-portfolio
+```
+
+Option 2 — npm:
 ```powershell
 $env:SERVICE_NAME = "OnDemandGatekeeper-gazi-portfolio"
 npm run service:uninstall
@@ -144,6 +156,30 @@ sc query OnDemandGatekeeper-gazi-portfolio
 - The service runs in host mode (node process) — container mode is not viable on Windows.
 - The service reads env vars from the `GATEKEEPER_ENV_FILE` .env file.
 - Logs are written to the Windows Event Log (via node-windows).
+
+### Alternative: Scheduled Task (no admin required)
+
+If `sc.exe`/`node-windows` installation fails (e.g. UAC not available), use a PowerShell
+Scheduled Task instead. It provides the same benefits (auto-start at logon, hidden, auto-restart):
+
+```powershell
+$gatekeeperDir = "C:\Users\ciphe\Documents\GitHub\on-demand-gatekeeper"
+$nodeExe = "C:\Users\ciphe\AppData\Local\Microsoft\WinGet\Packages\OpenJS.NodeJS.LTS_Microsoft.Winget.Source_8wekyb3d8bbwe\node-v24.14.0-win-x64\node.exe"
+$envFile = "$gatekeeperDir\.env.gazi"   # or .env.ai-invoice
+
+$action = New-ScheduledTaskAction -Execute $nodeExe -Argument "start-instance.js `"$envFile`"" -WorkingDirectory $gatekeeperDir
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -Hidden
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+
+Register-ScheduledTask -TaskName "OnDemandGatekeeper-gazi-portfolio" -Action $action -Trigger $trigger -Settings $settings -Principal $principal
+```
+
+Manage via Task Scheduler (`taskschd.msc`) or PowerShell:
+```powershell
+Start-ScheduledTask -TaskName "OnDemandGatekeeper-gazi-portfolio"
+Stop-ScheduledTask -TaskName "OnDemandGatekeeper-gazi-portfolio"
+```
 
 ## Security notes
 
