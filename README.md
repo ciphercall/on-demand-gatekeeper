@@ -57,6 +57,7 @@ See `.env.example`. Key values:
 | `TARGET_COMPOSE_FILE` | /target/docker-compose.yml | Absolute path to target compose file (read-only). |
 | `TARGET_ENV_FILE` | /target/.env | Absolute path to target .env (read-only). |
 | `INTERNAL_PORT` | 8024 | Host port the full stack binds while up. Must differ from `PUBLIC_PORT`. |
+| `WEB_BIND` | 127.0.0.1 | Interface passed through to the target compose. Target compose should publish `${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8023}:80`; keep loopback so the internal port is never public. |
 | `TARGET_HEALTH_URL` | http://127.0.0.1:INTERNAL_PORT/api/health | Polled during warm-up. |
 | `IDLE_TIMEOUT_MS` | 18000000 (5 h) | Idle time before teardown. |
 | `DEPLOY_TIMEOUT_MS` | 300000 | Max wait for the stack to become healthy. |
