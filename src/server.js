@@ -20,6 +20,8 @@
 
 const http = require('http');
 const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 // ---------------------------------------------------------------------------
 // Config
@@ -44,6 +46,10 @@ function loadConfig(env) {
     pollIntervalMs: parseInt(e.READY_POLL_INTERVAL_MS || '2000', 10),
     estimatedDeploySeconds: parseInt(e.ESTIMATED_DEPLOY_SECONDS || '90', 10),
     deployBuild: e.DEPLOY_BUILD === 'true',
+    autoRedeploy: e.AUTO_REDEPLOY !== 'false',
+    rebuildStampFile: e.REBUILD_STAMP_FILE || '',
+    rebuildPollIntervalMs: parseInt(e.REBUILD_POLL_INTERVAL_MS || '30000', 10),
+    redeployTimeoutMs: parseInt(e.REDEPLOY_TIMEOUT_MS || e.DEPLOY_TIMEOUT_MS || '300000', 10),
     adminToken: e.ADMIN_TOKEN || '',
   };
 }
@@ -120,6 +126,7 @@ function createGatekeeper(config, deps) {
   const checkHealth = d.checkHealth || ((url) => defaultCheckHealth(url));
   const now = d.now || (() => Date.now());
   const sleepFn = d.sleep || sleep;
+  const statFn = d.statFn || ((p) => fs.statSync(p));
 
   // State
   let state = 'idle'; // idle | warming | ready | stopping | error
@@ -130,6 +137,9 @@ function createGatekeeper(config, deps) {
   let deployPromise = null;
   let teardownPromise = null;
   const sseClients = new Set();
+  let redeployPromise = null;
+  let lastStampMtime = null;
+  let stampTimer = null;
 
   function setState(next, msg) {
     state = next;
@@ -186,6 +196,47 @@ function createGatekeeper(config, deps) {
     return args;
   }
 
+  function stampFile() {
+    if (config.rebuildStampFile) return config.rebuildStampFile;
+    try { return path.join(path.dirname(config.composeFile), '.rebuild-stamp'); }
+    catch (e) { return ''; }
+  }
+
+  async function redeploy() {
+    if (redeployPromise) return redeployPromise;
+    if (deployPromise) { try { await deployPromise; } catch (e) {} }
+    if (teardownPromise) { try { await teardownPromise; } catch (e) {} }
+    redeployPromise = (async () => {
+      try {
+        if (state === 'ready') {
+          await teardown('Redeploying — stopping old container...');
+        }
+        await deploy();
+        setState('ready', 'Ready (redeployed)');
+      } catch (err) {
+        if (state !== 'idle') setState('idle', `Redeploy failed: ${err.message}`);
+        throw err;
+      } finally {
+        redeployPromise = null;
+      }
+    })();
+    return redeployPromise;
+  }
+
+  function checkRebuildStamp() {
+    if (!config.autoRedeploy) return;
+    const f = stampFile();
+    if (!f) return;
+    let mtime = null;
+    try { mtime = statFn(f).mtimeMs; } catch (e) { return; }
+    if (lastStampMtime === null) { lastStampMtime = mtime; return; }
+    if (mtime <= lastStampMtime) return;
+    if (state !== 'ready' && state !== 'idle') return;
+    if (redeployPromise || deployPromise || teardownPromise) return;
+    lastStampMtime = mtime;
+    redeploy().catch(() => {});
+  }
+
   async function deploy() {
     if (deployPromise) return deployPromise;
     if (state === 'ready') return Promise.resolve();
@@ -219,10 +270,10 @@ function createGatekeeper(config, deps) {
     return deployPromise;
   }
 
-  async function teardown() {
+  async function teardown(msg) {
     if (teardownPromise) return teardownPromise;
     teardownPromise = (async () => {
-      setState('stopping', 'Stopping containers...');
+      setState('stopping', msg || 'Stopping containers...');
       try {
         await runCompose(composeArgs('down'), composeEnv());
       } catch (err) {
@@ -392,6 +443,17 @@ function createGatekeeper(config, deps) {
       return;
     }
 
+    if (path === '/_ondemand/redeploy' && req.method === 'POST') {
+      if (!isAdmin(req, url)) {
+        sendJson(res, 403, { error: 'forbidden' });
+        return;
+      }
+      redeploy()
+        .then(() => sendJson(res, 200, statusPayload()))
+        .catch((err) => sendJson(res, 500, { error: err.message }));
+      return;
+    }
+
     if (state === 'ready') {
       proxyRequest(req, res);
       return;
@@ -411,6 +473,11 @@ function createGatekeeper(config, deps) {
   function start(port) {
     const p = port || config.publicPort;
     startIdleWatcher();
+    if (config.autoRedeploy) {
+      try { checkRebuildStamp(); } catch (e) { /* ignore */ }
+      stampTimer = setInterval(() => { try { checkRebuildStamp(); } catch (e) { /* ignore */ } }, config.rebuildPollIntervalMs || 30000);
+      if (stampTimer.unref) stampTimer.unref();
+    }
     server.listen(p, () => {
       // eslint-disable-next-line no-console
       console.log(
@@ -424,6 +491,7 @@ function createGatekeeper(config, deps) {
 
   function stop() {
     stopIdleWatcher();
+    if (stampTimer) { clearInterval(stampTimer); stampTimer = null; }
     return new Promise((resolve) => {
       server.close(() => resolve());
     });
@@ -436,6 +504,8 @@ function createGatekeeper(config, deps) {
     stop,
     deploy,
     teardown,
+    redeploy,
+    checkRebuildStamp,
     tickIdle,
     getState: () => state,
     getMessage: () => message,

@@ -20,6 +20,10 @@ function makeConfig(overrides) {
       estimatedDeploySeconds: 10,
       deployBuild: false,
       adminToken: '',
+      autoRedeploy: true,
+      rebuildStampFile: '',
+      rebuildPollIntervalMs: 30000,
+      redeployTimeoutMs: 100,
     },
     overrides || {}
   );
@@ -285,4 +289,175 @@ test('ready state proxies requests and updates lastActivity', async () => {
   upstream.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));
   await new Promise((resolve) => upstream.close(resolve));
+});
+
+// ---- loadConfig new env vars ----
+test('loadConfig parses new redeploy env vars with defaults', () => {
+  const c = loadConfig({});
+  assert.equal(c.autoRedeploy, true);
+  assert.equal(c.rebuildStampFile, '');
+  assert.equal(c.rebuildPollIntervalMs, 30000);
+  assert.equal(c.redeployTimeoutMs, 300000);
+});
+
+test('loadConfig honours redeploy overrides', () => {
+  const c = loadConfig({
+    AUTO_REDEPLOY: 'false',
+    REBUILD_STAMP_FILE: '/tmp/stamp',
+    REBUILD_POLL_INTERVAL_MS: '123',
+    REDEPLOY_TIMEOUT_MS: '456',
+  });
+  assert.equal(c.autoRedeploy, false);
+  assert.equal(c.rebuildStampFile, '/tmp/stamp');
+  assert.equal(c.rebuildPollIntervalMs, 123);
+  assert.equal(c.redeployTimeoutMs, 456);
+});
+
+test('loadConfig AUTO_REDEPLOY false only when exactly false', () => {
+  const c = loadConfig({ AUTO_REDEPLOY: 'true' });
+  assert.equal(c.autoRedeploy, true);
+});
+
+test('loadConfig redeployTimeoutMs falls back to DEPLOY_TIMEOUT_MS', () => {
+  const c = loadConfig({ DEPLOY_TIMEOUT_MS: '789' });
+  assert.equal(c.redeployTimeoutMs, 789);
+});
+
+// ---- redeploy success ----
+test('redeploy tears down then deploys to ready', async () => {
+  let calls = 0;
+  const runCompose = async () => {
+    calls++;
+    return { stdout: '', stderr: '' };
+  };
+  const checkHealth = async () => true;
+  const gk = createGatekeeper(makeConfig(), {
+    runCompose,
+    checkHealth,
+    sleep: async () => {},
+  });
+  await gk.deploy();
+  assert.equal(gk.getState(), 'ready');
+  const before = calls;
+  await gk.redeploy();
+  assert.equal(gk.getState(), 'ready');
+  assert.equal(gk.getMessage(), 'Ready (redeployed)');
+  assert.ok(calls - before >= 2, 'compose called for down then up');
+});
+
+// ---- redeploy admin gating via HTTP ----
+test('redeploy admin gating via HTTP', async () => {
+  const http = require('node:http');
+  const gk = createGatekeeper(
+    makeConfig({ adminToken: 'tok' }),
+    {
+      runCompose: async () => ({ stdout: '', stderr: '' }),
+      checkHealth: async () => true,
+      sleep: async () => {},
+    }
+  );
+  await gk.deploy();
+  const server = gk.server;
+  await new Promise((resolve) => server.listen(0, resolve));
+  const port = server.address().port;
+
+  function post(path, headers) {
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        { host: '127.0.0.1', port, path, method: 'POST', headers: headers || {} },
+        (res) => {
+          let body = '';
+          res.on('data', (d) => (body += d));
+          res.on('end', () => resolve({ status: res.statusCode, body }));
+        }
+      );
+      req.on('error', reject);
+      req.end();
+    });
+  }
+
+  const r1 = await post('/_ondemand/redeploy');
+  assert.equal(r1.status, 403);
+  const r2 = await post('/_ondemand/redeploy', { 'x-admin-token': 'nope' });
+  assert.equal(r2.status, 403);
+  const r3 = await post('/_ondemand/redeploy', { 'x-admin-token': 'tok' });
+  assert.equal(r3.status, 200);
+
+  await new Promise((resolve) => server.close(resolve));
+});
+
+// ---- checkRebuildStamp baseline ----
+test('checkRebuildStamp records baseline without redeploy', async () => {
+  let calls = 0;
+  const runCompose = async () => {
+    calls++;
+    return { stdout: '', stderr: '' };
+  };
+  const checkHealth = async () => true;
+  const statFn = () => ({ mtimeMs: 1000 });
+  const gk = createGatekeeper(makeConfig({ autoRedeploy: true }), {
+    runCompose,
+    checkHealth,
+    sleep: async () => {},
+    statFn,
+  });
+  await gk.deploy();
+  const before = calls;
+  gk.checkRebuildStamp();
+  assert.equal(gk.getState(), 'ready');
+  assert.equal(calls, before);
+});
+
+// ---- checkRebuildStamp trigger ----
+test('checkRebuildStamp triggers redeploy on larger mtime', async () => {
+  let mtime = 1000;
+  const statFn = () => ({ mtimeMs: mtime });
+  let calls = 0;
+  const runCompose = async () => {
+    calls++;
+    return { stdout: '', stderr: '' };
+  };
+  const checkHealth = async () => true;
+  const gk = createGatekeeper(makeConfig({ autoRedeploy: true }), {
+    runCompose,
+    checkHealth,
+    sleep: async () => {},
+    statFn,
+  });
+  await gk.deploy();
+  gk.checkRebuildStamp(); // baseline at 1000
+  mtime = 2000;
+  const before = calls;
+  gk.checkRebuildStamp(); // trigger
+  // wait for redeploy to finish
+  const start = Date.now();
+  while (gk.getMessage() !== 'Ready (redeployed)' && Date.now() - start < 2000) {
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  assert.equal(gk.getState(), 'ready');
+  assert.equal(gk.getMessage(), 'Ready (redeployed)');
+  assert.ok(calls - before >= 2, 'compose called');
+});
+
+// ---- checkRebuildStamp skip while warming ----
+test('checkRebuildStamp skips while warming', async () => {
+  let mtime = 1000;
+  const statFn = () => ({ mtimeMs: mtime });
+  const runCompose = async () => new Promise(() => {});
+  const checkHealth = async () => true;
+  const gk = createGatekeeper(makeConfig({ autoRedeploy: true }), {
+    runCompose,
+    checkHealth,
+    sleep: async () => {},
+    statFn,
+  });
+  const p = gk.deploy(); // state becomes warming, hangs
+  // avoid unhandled rejection
+  p.catch(() => {});
+  assert.equal(gk.getState(), 'warming');
+  // baseline
+  gk.checkRebuildStamp();
+  mtime = 2000;
+  gk.checkRebuildStamp();
+  assert.equal(gk.getState(), 'warming');
 });
