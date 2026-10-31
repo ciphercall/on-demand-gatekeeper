@@ -94,6 +94,10 @@ ESTIMATED_DEPLOY_SECONDS=90
 DEPLOY_BUILD=false
 WEB_BIND=127.0.0.1
 ADMIN_TOKEN=<random secret>
+AUTO_REDEPLOY=true
+REBUILD_STAMP_FILE=/abs/path/to/target/.rebuild-stamp
+REBUILD_POLL_INTERVAL_MS=30000
+REDEPLOY_TIMEOUT_MS=300000
 ```
 
 ## 5. First build (once)
@@ -132,6 +136,11 @@ docker compose -f <target>/deploy/docker-compose.yml --env-file <target>/deploy/
 - A deploy script's own health check usually targets the public port; while the gatekeeper owns it
   and the stack is idle, that check can hit the warming page. Verify through `/_ondemand/status`
   and `docker compose ps` instead of trusting the script's exit code.
+- Auto-redeploy: CI/CD builds and ups the target, then `touch`es the rebuild stamp
+  (`REBUILD_STAMP_FILE`); the gatekeeper polls it (`REBUILD_POLL_INTERVAL_MS`) and auto-runs
+  `POST /_ondemand/redeploy` (teardown then deploy), streaming progress over SSE. A manual
+  trigger is always available via `POST /_ondemand/redeploy`. Migrations and seeding stay
+  manual CI steps — the gatekeeper never migrates or seeds.
 
 ## 9. Manual control (URL-based)
 
@@ -147,6 +156,9 @@ curl -X POST "http://<host>:<port>/_ondemand/teardown?token=<ADMIN_TOKEN>"
 
 # Force deploy (start the full stack)
 curl -X POST "http://<host>:<port>/_ondemand/deploy?token=<ADMIN_TOKEN>"
+
+# Force redeploy (teardown then deploy)
+curl -X POST "http://<host>:<port>/_ondemand/redeploy?token=<ADMIN_TOKEN>"
 ```
 
 ## 10. Troubleshooting

@@ -64,7 +64,11 @@ See `.env.example`. Key values:
 | `READY_POLL_INTERVAL_MS` | 2000 | Health poll interval. |
 | `ESTIMATED_DEPLOY_SECONDS` | 90 | Countdown shown on the warming page. |
 | `DEPLOY_BUILD` | false | Run `up -d --build` (needs target repo context). |
-| `ADMIN_TOKEN` | (empty) | Gates `POST /_ondemand/deploy` and `/teardown`. |
+| `ADMIN_TOKEN` | (empty) | Gates `POST /_ondemand/deploy`, `/teardown`, and `/redeploy`. |
+| `AUTO_REDEPLOY` | true | Poll the rebuild stamp and auto-redeploy when it changes. |
+| `REBUILD_STAMP_FILE` | `<compose dir>/.rebuild-stamp` | Path to the stamp file watched for rebuilds. |
+| `REBUILD_POLL_INTERVAL_MS` | 30000 | Rebuild-stamp poll interval (ms). |
+| `REDEPLOY_TIMEOUT_MS` | `DEPLOY_TIMEOUT_MS` | Max wait for a redeploy to become healthy. |
 
 ## Endpoints
 
@@ -73,6 +77,16 @@ See `.env.example`. Key values:
 - `GET /_ondemand/status` — JSON status.
 - `POST /_ondemand/deploy` — force deploy (admin-token gated).
 - `POST /_ondemand/teardown` — force teardown (admin-token gated).
+- `POST /_ondemand/redeploy` — teardown then deploy (admin-token gated); streams progress via SSE and returns a status payload.
+
+## Auto-redeploy (rebuild stamp)
+
+When `AUTO_REDEPLOY` is true the gatekeeper watches `REBUILD_STAMP_FILE` (default
+`<compose dir>/.rebuild-stamp`) and auto-redeploys whenever its mtime advances —
+CI/CD `touch`es the stamp after a successful build+up, the gatekeeper polls every
+`REBUILD_POLL_INTERVAL_MS` and tears down then deploys, streaming progress over SSE.
+A manual trigger is always available via `POST /_ondemand/redeploy`. Migrations and
+seeding remain manual CI steps; the gatekeeper never migrates or seeds.
 
 ## Manual control (URL-based)
 
@@ -87,6 +101,9 @@ curl -X POST "http://localhost:8023/_ondemand/teardown?token=<ADMIN_TOKEN>"
 
 # Force deploy (start the full stack)
 curl -X POST "http://localhost:8023/_ondemand/deploy?token=<ADMIN_TOKEN>"
+
+# Force redeploy (teardown then deploy)
+curl -X POST "http://localhost:8023/_ondemand/redeploy?token=<ADMIN_TOKEN>"
 ```
 
 Examples with the default local dev token:
@@ -94,6 +111,7 @@ Examples with the default local dev token:
 ```bash
 curl -X POST "http://localhost:8023/_ondemand/teardown?token=local-dev-token"
 curl -X POST "http://localhost:8023/_ondemand/deploy?token=local-dev-token"
+curl -X POST "http://localhost:8023/_ondemand/redeploy?token=local-dev-token"
 ```
 
 ## Windows service (local Windows only)
