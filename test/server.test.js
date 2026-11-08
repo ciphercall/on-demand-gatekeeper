@@ -291,6 +291,74 @@ test('ready state proxies requests and updates lastActivity', async () => {
   await new Promise((resolve) => upstream.close(resolve));
 });
 
+test('proxy forwards the client host instead of losing it to the loopback bind', async () => {
+  const http = require('node:http');
+  // Upstream echoes the headers it received, so the assertions describe what the
+  // target would actually see.
+  const upstream = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(req.headers));
+  });
+  await new Promise((resolve) => upstream.listen(8098, '127.0.0.1', resolve));
+
+  const gk = createGatekeeper(
+    makeConfig({ internalPort: 8098, healthUrl: 'http://127.0.0.1:8098/health' }),
+    {
+      runCompose: async () => ({ stdout: '', stderr: '' }),
+      checkHealth: async () => true,
+      sleep: async () => {},
+    }
+  );
+  await gk.deploy();
+  assert.equal(gk.getState(), 'ready');
+
+  const server = gk.server;
+  await new Promise((resolve) => server.listen(0, resolve));
+  const port = server.address().port;
+
+  function requestHeaders(extra) {
+    return new Promise((resolve, reject) => {
+      http.get(
+        {
+          host: '127.0.0.1',
+          port,
+          path: '/admin',
+          headers: Object.assign({ Host: 'studio.example.test:8027' }, extra || {}),
+        },
+        (res) => {
+          let b = '';
+          res.on('data', (d) => (b += d));
+          res.on('end', () => resolve(JSON.parse(b)));
+        }
+      ).on('error', reject);
+    });
+  }
+
+  const seen = await requestHeaders();
+
+  // The upstream is still reached through the loopback bind...
+  assert.equal(seen.host, '127.0.0.1:8098');
+  // ...but the real client host survives, because a target may validate the
+  // browser's Origin against it (Next.js Server Actions).
+  assert.equal(seen['x-forwarded-host'], 'studio.example.test:8027');
+  assert.equal(seen['x-forwarded-proto'], 'http');
+
+  // An inbound X-Forwarded-For chain passes through untouched rather than being
+  // replaced with the socket peer address.
+  const chained = await requestHeaders({
+    'X-Forwarded-For': '203.0.113.9, 10.0.0.1',
+    'X-Forwarded-Proto': 'https',
+  });
+  assert.equal(chained['x-forwarded-for'], '203.0.113.9, 10.0.0.1');
+  assert.equal(chained['x-forwarded-proto'], 'https');
+  assert.equal(chained['x-forwarded-host'], 'studio.example.test:8027');
+
+  server.closeAllConnections();
+  upstream.closeAllConnections();
+  await new Promise((resolve) => server.close(resolve));
+  await new Promise((resolve) => upstream.close(resolve));
+});
+
 // ---- loadConfig new env vars ----
 test('loadConfig parses new redeploy env vars with defaults', () => {
   const c = loadConfig({});

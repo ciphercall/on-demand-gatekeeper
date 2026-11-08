@@ -369,14 +369,30 @@ function createGatekeeper(config, deps) {
 
   function proxyRequest(req, res) {
     lastActivity = now();
+    // The target may validate the browser's Origin against X-Forwarded-Host
+    // (Next.js Server Actions, absolute URL generation, host allowlists). We must
+    // rewrite `host` to the loopback bind so the target still resolves, so the real
+    // client host has to be preserved here — otherwise those checks fail and, e.g.,
+    // admin form submissions are rejected with "Invalid Server Actions request".
+    const originalHost = req.headers.host || req.headers['x-forwarded-host'];
+    const forwardedProto =
+      req.headers['x-forwarded-proto'] ||
+      (req.socket && req.socket.encrypted ? 'https' : 'http');
+    const headers = Object.assign({}, req.headers, {
+      host: `127.0.0.1:${config.internalPort}`,
+      'x-forwarded-proto': forwardedProto,
+    });
+    if (originalHost) headers['x-forwarded-host'] = originalHost;
+    // Keep any inbound X-Forwarded-For chain; only seed it from the socket.
+    if (!headers['x-forwarded-for'] && req.socket && req.socket.remoteAddress) {
+      headers['x-forwarded-for'] = req.socket.remoteAddress;
+    }
     const options = {
       hostname: '127.0.0.1',
       port: config.internalPort,
       path: req.url,
       method: req.method,
-      headers: Object.assign({}, req.headers, {
-        host: `127.0.0.1:${config.internalPort}`,
-      }),
+      headers,
     };
     const proxyReq = http.request(options, (proxyRes) => {
       res.writeHead(proxyRes.statusCode, proxyRes.headers);

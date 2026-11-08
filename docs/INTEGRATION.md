@@ -76,6 +76,32 @@ lists across files. The container then gets two host bindings for the same conta
 second bind fails and the web container is left with no network — it restarts with
 `host not found in upstream "app:3000"`.
 
+### Forwarded headers
+
+The gatekeeper is a reverse proxy, so the request the target sees is not the request the browser
+sent. It sends `Host: 127.0.0.1:<INTERNAL_PORT>` upstream (the target must resolve to the loopback
+bind) but preserves the real client host in `X-Forwarded-Host`, and also sets `X-Forwarded-Proto`
+(inbound value if present, otherwise derived from the socket) and — only when the inbound request
+has none — `X-Forwarded-For`. An existing `X-Forwarded-For` chain is passed through untouched.
+
+Applications that validate the request origin must therefore trust `X-Forwarded-Host` for the proxy
+hop, or their admin form submissions are rejected with no visible error:
+
+- **Next.js Server Actions** compare the `Origin` header against `X-Forwarded-Host`; a mismatch
+  yields `Invalid Server Actions request`.
+- **Django** needs the host in `ALLOWED_HOSTS` (or `USE_X_FORWARDED_HOST = True`).
+- **Rails** host authorisation (`config.hosts`) must allow the forwarded host.
+
+If the target has its own nginx in front of the app, that nginx should forward the host with the
+port kept:
+
+```nginx
+proxy_set_header X-Forwarded-Host $http_host;
+```
+
+`$host` drops the port, which breaks origin comparison when the public site is served on a
+non-443 port.
+
 ## 4. Configure the gatekeeper
 
 Copy `on-demand-gatekeeper/.env.example` to `.env` and set:
