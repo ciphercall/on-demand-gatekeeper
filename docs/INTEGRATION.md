@@ -92,15 +92,27 @@ hop, or their admin form submissions are rejected with no visible error:
 - **Django** needs the host in `ALLOWED_HOSTS` (or `USE_X_FORWARDED_HOST = True`).
 - **Rails** host authorisation (`config.hosts`) must allow the forwarded host.
 
-If the target has its own nginx in front of the app, that nginx should forward the host with the
-port kept:
+If the target has its own nginx in front of the app, that nginx must not simply re-derive the host
+from what it received: behind the gatekeeper the inbound `Host` has already been rewritten to
+`127.0.0.1:<INTERNAL_PORT>`. Prefer the forwarded value and fall back to the inbound one, so the
+same config works both directly and through the gatekeeper:
 
 ```nginx
-proxy_set_header X-Forwarded-Host $http_host;
+# http level
+map $http_x_forwarded_host $public_host {
+  default $http_x_forwarded_host;
+  ""      $http_host;
+}
+
+# in the proxying server/location
+proxy_set_header Host             $public_host;
+proxy_set_header X-Forwarded-Host $public_host;
 ```
 
-`$host` drops the port, which breaks origin comparison when the public site is served on a
-non-443 port.
+`$http_host` alone keeps the port (good) but, behind the gatekeeper, resolves to the loopback host
+(bad) — the app then sees `X-Forwarded-Host: 127.0.0.1:8028` while the browser sends
+`Origin: http://<public-host>:<PUBLIC_PORT>`, and origin-checked mutations fail. `$host` alone drops
+the port, which breaks the same comparison whenever the public site is served on a non-443 port.
 
 ## 4. Configure the gatekeeper
 
