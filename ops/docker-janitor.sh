@@ -225,6 +225,16 @@ main() {
     exit 0
   fi
 
+  # A running build is the one thing that must never be disturbed. Pruning
+  # images under it can strand it, and pruning the cache it is writing to is
+  # worse: reclaimable GB are not worth a corrupt build. Both steps wait.
+  if build_is_running; then
+    log "BUILD_ACTIVE: a docker build is in progress, all pruning skipped"
+    after="$(free_bytes)"
+    log "=== docker-janitor done, skipped (build running), free $(human "$after") ==="
+    exit 0
+  fi
+
   # Below the floor we must act even on a healthy-looking disk; above the skip
   # threshold there is no need to churn images at all.
   local do_images=1
@@ -234,11 +244,7 @@ main() {
   fi
 
   if [ "$do_images" -eq 1 ]; then
-    if build_is_running; then
-      log "BUILD_ACTIVE: a docker build is in progress, image prune skipped"
-    else
-      reclaim_dangling_images
-    fi
+    reclaim_dangling_images
   fi
 
   reclaim_build_cache
