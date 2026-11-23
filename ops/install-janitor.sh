@@ -64,7 +64,14 @@ say "== installing janitor from $HERE =="
 # ---------------------------------------------------------------- 1. scripts --
 say "[1/5] janitor script -> $DEST_OPS"
 run mkdir -p "$DEST_OPS"
-run install -m 0755 "$HERE/docker-janitor.sh" "$DEST_OPS/docker-janitor.sh"
+# Run in place from the checkout and source == destination, which `install`
+# refuses ("are the same file"). The file is already there and executable's bit
+# is set below; only the mode needs enforcing.
+if [ "$HERE" = "$DEST_OPS" ]; then
+  run chmod 0755 "$DEST_OPS/docker-janitor.sh"
+else
+  run install -m 0755 "$HERE/docker-janitor.sh" "$DEST_OPS/docker-janitor.sh"
+fi
 
 # ------------------------------------------------------------- 2. systemd ----
 say "[2/5] systemd unit + timer"

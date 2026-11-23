@@ -1,0 +1,7 @@
+# These are executed on the VPS. A Windows checkout with core.autocrlf=true can
+# otherwise hand Linux CRLF endings, and git does not preserve the executable
+# bit through every clone path, so both are pinned here.
+*.sh        text eol=lf
+ops/*.sh    text eol=lf
+*.service   text eol=lf
+*.timer     text eol=lf
