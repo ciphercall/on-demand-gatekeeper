@@ -1,0 +1,16 @@
+[Unit]
+Description=Daily VPS disk janitor
+Documentation=file:///opt/github/on-demand-gatekeeper/docs/JANITOR.md
+
+[Timer]
+# One scheduled pass. The script itself adds the weekly steps when the pass
+# falls on a Sunday (WEEKLY_ON_DOW), so there is a single timer, a single log
+# and no way for two passes to overlap.
+OnCalendar=*-*-* 04:15:00
+RandomizedDelaySec=300
+# After a reboot, run once if the last slot was missed; never double-run a slot.
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

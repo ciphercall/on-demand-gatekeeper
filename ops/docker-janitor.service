@@ -1,0 +1,31 @@
+[Unit]
+Description=Reclaim VPS disk space (dangling images, build cache, old dumps)
+Documentation=file:///opt/github/on-demand-gatekeeper/docs/JANITOR.md
+After=docker.service
+Requires=docker.service
+# The janitor is a cleaner, never a dependency of a running app: it must not
+# delay boot, and a failure must never take anything else down with it.
+ConditionPathExists=/usr/bin/docker
+
+[Service]
+Type=oneshot
+ExecStart=/opt/github/on-demand-gatekeeper/ops/docker-janitor.sh
+User=root
+# No -a and no --volumes are ever passed: the images and volumes of sleeping
+# on-demand stacks must survive, or their cold start fails.
+Environment=MIN_FREE_BYTES=8589934592
+Environment=SKIP_ABOVE_BYTES=37580963840
+Environment=BUILD_CACHE_KEEP=10GB
+Environment=BUILD_CACHE_UNTIL=168h
+Environment=DUMP_KEEP_DAILY=7
+Environment=DUMP_KEEP_WEEKLY=4
+Environment=DUMP_GLOB_ROOT=/opt/github
+Environment=JANITOR_LOG=/var/log/docker-janitor.log
+# Sunday's pass also runs the weekly steps (stopped containers, networks, dumps).
+Environment=WEEKLY_ON_DOW=0
+# A prune that is killed halfway leaves no trace, so let it finish.
+TimeoutStartSec=1800
+Nice=10
+IOSchedulingClass=idle
+StandardOutput=journal
+StandardError=journal
