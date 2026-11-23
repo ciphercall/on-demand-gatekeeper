@@ -1,0 +1,21 @@
+# Rotate the access logs that vps-dashboard tails for visitor analytics.
+#
+# These files are served by nginx inside a stack that the gatekeeper may have
+# asleep at any moment, so `copytruncate` is used on purpose: it keeps the same
+# inode and needs no container reload. vps-dashboard detects the shrink
+# (src/lib/server/ingest.ts: size < state.offset) and resumes from byte 0, so
+# analytics never stops.
+#
+# Never truncate these files by hand, and never rotate them away entirely: the
+# ingester's whole input is here.
+/opt/github/*/deploy/logs/*.log {
+    daily
+    rotate 14
+    size 20M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su root root
+}
